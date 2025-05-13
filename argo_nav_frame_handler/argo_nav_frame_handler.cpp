@@ -151,6 +151,8 @@ void argo_nav_frame_handler(
             break;
     }
 
+    // Handle the transmission of TXD_1
+
     if (txd_1_ready == true) {
         txd_1_buf[TXD_1_SIZE];
         txd_1_buf[0] = TXD_1_HEADER_1;
