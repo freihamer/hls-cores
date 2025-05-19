@@ -145,6 +145,13 @@ void nav_msg_rx(
     static NavMsgReceiver msg_receiver_1(0xA5A0, 30);
     static NavMsgReceiver msg_receiver_2(0x55AA, 160);
 
+    if (msg_receiver_1.get_state() == ReceiverState::Completed) {
+        msg_receiver_2.process(data_in);
+    } else {
+        msg_receiver_1.process(data_in);
+    }
+
+
     static uint16_t gap_cycles = 0U; // The number of clock cycles spent waiting for the next byte_rx of a sequence
 
     if (data_in.empty()) {
