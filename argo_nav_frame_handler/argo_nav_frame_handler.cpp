@@ -2,19 +2,7 @@
 #include <hls_stream.h>
 
 // The timeout in clock cycles, between any two expected receive bytes.
-#define RXD_TIMEOUT 5000U // 100us @ 50MHz
-
-#define RXD_1_HEADER_1 0xA0
-#define RXD_1_HEADER_2 0xA5
-#define RXD_1_SIZE 30U
-
-#define RXD_2_HEADER_1 0xAA
-#define RXD_2_HEADER_2 0x55
-#define RXD_2_SIZE 160U
-
-#define TXD_1_HEADER_1 0xD5
-#define TXD_1_HEADER_2 0x5A
-#define TXD_1_SIZE 34U
+#define DATA_IN_TIMEOUT 5000U // 100us @ 50MHz
 
 /* The checksum calculation implements CRC-16-CCITT (0x1021, initial 0xFFFF) */
 uint16_t checksum_crc16_ccitt(const uint8_t* data, int len) {
@@ -36,27 +24,48 @@ uint16_t checksum_crc16_ccitt(const uint8_t* data, int len) {
     return crc;
 }
 
-enum FSMState {
-    IDLE,
-    F1_HEADER_1,
-    F1_HEADER_2,
-    F1_RECEIVING,
-    F1_COMPLETED,
-    F2_HEADER_1,
-    F2_HEADER_2,
-    F2_RECEIVING
-};
 
-void argo_nav_frame_handler(
-    uint8_t rx_byte,                   // in
-    bool rx_ready,                     // in   
-    uint8_t* txd_1,                    // in
-    bool txd_1_ready,                  // in                    
-    uint8_t* rxd_1,                    // out
-    uint8_t* rxd_2,                    // out
-    bool* rxd_1_valid,                 // out
-    bool* rxd_2_valid,                 // out
-    hls::FIFO<uint8_t> &tx_fifo        // out
+#define NAV_MSG_TX_1_HEADER_1 0xD5
+#define NAV_MSG_TX_1_HEADER_2 0x5A
+#define NAV_MSG_TX_1_SIZE 34U
+
+void nav_msg_tx(
+    uint8_t* msg_tx,
+    hls::FIFO<uint8_t> &data_out
+) {
+#pragma HLS function top
+#pragma HLS interface control type(axi_target)
+
+    uint8_t buffer[NAV_MSG_TX_1_SIZE];
+
+    buffer[0] = NAV_MSG_TX_1_HEADER_1;
+    buffer[1] = NAV_MSG_TX_1_HEADER_2;
+    for (int i = 2; i < NAV_MSG_TX_1_SIZE; i++)
+        buffer[i] = msg_tx[i];
+    uint16_t crc = checksum_crc16_ccitt(buffer, NAV_MSG_TX_1_SIZE - 2);
+    buffer[NAV_MSG_TX_1_SIZE - 2] = (crc >> 8) & 0xFF;
+    buffer[NAV_MSG_TX_1_SIZE - 1] = crc & 0xFF;
+    
+    for (int i = 0; i < NAV_MSG_TX_1_SIZE; i++)
+        data_out.write(buffer[i]);
+}
+
+
+#define NAV_MSG_RX_1_HEADER_1 0xA0
+#define NAV_MSG_RX_1_HEADER_2 0xA5
+#define NAV_MSG_RX_1_SIZE 30U
+
+#define NAV_MSG_RX_2_HEADER_1 0xAA
+#define NAV_MSG_RX_2_HEADER_2 0x55
+#define NAV_MSG_RX_2_SIZE 160U
+
+void nav_msg_rx(
+    hls::FIFO<uint8_t> &data_in                   
+    uint8_t* msg_rx_1,
+    uint8_t* msg_rx_2,
+    bool* msg_rx_1_valid,
+    bool* msg_rx_2_valid,
+    
 ) {
 #pragma HLS function top
 #pragma HLS interface control type(simple)
@@ -65,7 +74,15 @@ void argo_nav_frame_handler(
 #pragma HLS interface argument(rxd_1) type(memory) num_elements(RXD_1_SIZE)
 #pragma HLS interface argument(rxd_2) type(memory) num_elements(RXD_2_SIZE)
 
-    static FSMState state = IDLE;
+    static enum State {
+        IDLE,
+        HEADER_1,
+        HEADER_2,
+        RECEIVING,
+        PAUSED,
+        COMPLETED
+    } msg_rx_1_state = IDLE, msg_rx_2_state = IDLE;
+
     static uint8_t f1_buf[F1_SIZE];
     static uint8_t f2_buf[F2_SIZE];
     static uint8_t f1_bytes = 0U;
@@ -149,21 +166,5 @@ void argo_nav_frame_handler(
                 state = IDLE;
             }
             break;
-    }
-
-    // Handle the transmission of TXD_1
-
-    if (txd_1_ready == true) {
-        txd_1_buf[TXD_1_SIZE];
-        txd_1_buf[0] = TXD_1_HEADER_1;
-        txd_1_buf[1] = TXD_1_HEADER_2;
-        for (int i = 2; i < TXD_1_SIZE; i++)
-            txd_1_buf[i] = txd_1[i];
-        uint16_t crc = checksum_crc16_ccitt(txd_1_buf, TXD_1_SIZE - 2);
-        txd_1_buf[TXD_1_SIZE - 2] = (crc >> 8) & 0xFF;
-        txd_1_buf[TXD_1_SIZE - 1] = crc & 0xFF;
-
-        for (int i = 0; i < TXD_1_SIZE; i++)
-            tx_fifo.write(txd_1_buf[i]);
     }
 }
