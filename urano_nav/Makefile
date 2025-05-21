@@ -1,5 +1,5 @@
-NAME = urano
-SRCS= urano.cpp
+NAME = urano_nav
+SRCS= msg_rx.cpp msg_tx.cpp utils.cpp test_bench.cpp
 LOCAL_CONFIG = -legup-config=config.tcl
 SHLS_ROOT_DIR ?= $(abspath $(dir $(shell which shls))/..)
 
