@@ -120,10 +120,12 @@ void nav_msg_rx(
 ) {
 #pragma HLS function top
 #pragma HLS interface control type(simple)
-#pragma HLS interface argument(msg_1_timestamp) type(memory)
-#pragma HLS interface argument(msg_2_timestamp) type(memory)
+#pragma HLS interface argument(msg_1_timestamp) type(memory) num_elements(1)
+#pragma HLS interface argument(msg_2_timestamp) type(memory) num_elements(1)
 #pragma HLS interface argument(msg_1_body) type(memory) num_elements(MSG_1_SIZE - 4)
 #pragma HLS interface argument(msg_2_body) type(memory) num_elements(MSG_2_SIZE - 4)
+#pragma HLS interface argument(msg_1_stats) type(memory) num_elements(1)
+#pragma HLS interface argument(msg_2_stats) type(memory) num_elements(1)
 
     static uint64_t clock_cycles = 0U;
     static uint16_t gap_tracker = 0U; // The number of clock clock_cycles spent waiting for the next byte_rx of a sequence
@@ -196,8 +198,9 @@ void nav_msg_tx(
     uint8_t* msg_tx,
     hls::FIFO<uint8_t> &data_out
 ) {
-#pragma HLS function top
+//#pragma HLS function top
 #pragma HLS interface control type(simple)
+#pragma HLS interface argument(msg_tx) type(memory) num_elements(MSG_TX_1_SIZE - 4)
 
     uint8_t buffer[MSG_TX_1_SIZE];
 
@@ -287,12 +290,12 @@ int main(int argc, char** argv) {
     for (uint8_t i = 0; i < MSG_2_SIZE - 4; ++i)
         printf("%02X ", msg_2_body[i]);
     
-    assert(msg_1_stats.valid == 1U);
-    assert(msg_1_stats.invalid == 0U);
-    assert(msg_1_stats.aborted == 0U);
-    assert(msg_2_stats.valid == 1U);
-    assert(msg_2_stats.invalid == 0U);
-    assert(msg_2_stats.aborted == 0U);
+    uint8_t errors = !((msg_1_stats.valid == 1U) &&
+        (msg_1_stats.invalid == 0U) &&
+        (msg_1_stats.aborted == 0U) &&
+        (msg_2_stats.valid == 1U) &&
+        (msg_2_stats.invalid == 0U) &&
+        (msg_2_stats.aborted == 0U));
 
-    return 0;
+    return errors;
 }
