@@ -33,51 +33,51 @@ enum class ReceiverState {
 class NavMsgReceiver {
 public:
     NavMsgReceiver(uint16_t header, uint8_t size) :
-        state_(ReceiverState::Idle),
-        counter_(0),
-        buffer_{0},
-        header_(header),
-        size_(size) {}
+        state(ReceiverState::Idle),
+        counter(0),
+        buffer{0},
+        header(header),
+        size(size) {}
 
     void reset() {
-        counter_ = 0;
-        state_ = ReceiverState::Idle;
+        counter = 0;
+        state = ReceiverState::Idle;
     }
 
     ReceiverState get_state() const {
-        return state_;
+        return state;
     }
 
     const uint8_t (&get_buffer() const)[256] {
-        return buffer_;
+        return buffer;
     }
 
     uint8_t get_counter() const {
-        return counter_;
+        return counter;
     }
 
     ReceiverState process(uint8_t byte_rx) {
-        switch (state_) {
+        switch (state) {
             case ReceiverState::Idle:
-                if (byte_rx == (header_ >> 8)) {
-                    buffer_[counter_++] = byte_rx;
-                    state_ = ReceiverState::Starting;
+                if (byte_rx == (header >> 8)) {
+                    buffer[counter++] = byte_rx;
+                    state = ReceiverState::Starting;
                 }
                 break;
 
             case ReceiverState::Starting:
-                if (byte_rx == (header_ & 0xFF)) {
-                    buffer_[counter_++] = byte_rx;
-                    state_ = ReceiverState::Receiving;
+                if (byte_rx == (header & 0xFF)) {
+                    buffer[counter++] = byte_rx;
+                    state = ReceiverState::Receiving;
                 } else {
                     reset();
                 }
                 break;
 
             case ReceiverState::Receiving:
-                buffer_[counter_++] = byte_rx;
-                if (counter_ == size_) {
-                    state_ = ReceiverState::Completed;
+                buffer[counter++] = byte_rx;
+                if (counter == size) {
+                    state = ReceiverState::Completed;
                 }
                 break;
 
@@ -85,16 +85,16 @@ public:
                 break;
         }
 
-        return state_;
+        return state;
     }
 
 private:
 
-    ReceiverState state_;
-    uint8_t counter_;
-    uint8_t buffer_[256];
-    uint16_t header_;
-    uint8_t size_;
+    ReceiverState state;
+    uint8_t counter;
+    uint8_t buffer[256];
+    uint16_t header;
+    uint8_t size;
     
 };
 
@@ -198,14 +198,14 @@ void nav_msg_tx(
     uint8_t* msg_tx,
     hls::FIFO<uint8_t> &data_out
 ) {
-//#pragma HLS function top
+#pragma HLS function top
 #pragma HLS interface control type(simple)
 #pragma HLS interface argument(msg_tx) type(memory) num_elements(MSG_TX_1_SIZE - 4)
 
     uint8_t buffer[MSG_TX_1_SIZE];
 
-    buffer[0] = MSG_TX_1_HEADER & 0xFF;
-    buffer[1] = MSG_TX_1_HEADER >> 8;
+    buffer[0] = MSG_TX_1_HEADER >> 8;
+    buffer[1] = MSG_TX_1_HEADER & 0xFF;
 
 #pragma HLS loop unroll
     for (uint8_t i = 2; i < MSG_TX_1_SIZE - 2; ++i)
@@ -220,8 +220,50 @@ void nav_msg_tx(
 }
 
 int main(int argc, char** argv) {
+
+    hls::FIFO<uint8_t> data_out(MSG_TX_1_SIZE);
+    uint8_t bytes_sent = 0U;
+
+    uint8_t msg_tx_test[MSG_TX_1_SIZE - 4];
+    for (uint8_t i = 0; i < MSG_TX_1_SIZE - 4; ++i) {
+        msg_tx_test[i] = i;
+    }
+
+    uint8_t msg_tx_expect[MSG_TX_1_SIZE];
+    msg_tx_expect[0] = MSG_TX_1_HEADER >> 8;
+    msg_tx_expect[1] = MSG_TX_1_HEADER & 0xFF;
+    for (uint8_t i = 0; i < MSG_TX_1_SIZE - 4; ++i) {
+        msg_tx_expect[i + 2] = i;
+    }
+    uint16_t crc = checksum_crc16_ccitt(msg_tx_expect, MSG_TX_1_SIZE - 2);
+    msg_tx_expect[MSG_TX_1_SIZE - 2] = (crc >> 8) & 0xFF;
+    msg_tx_expect[MSG_TX_1_SIZE - 1] = crc & 0xFF;
+
+    uint8_t msg_tx_actual[MSG_TX_1_SIZE];
+
+    nav_msg_tx(msg_tx_test, data_out);
+    while (!data_out.empty()) {
+        msg_tx_actual[bytes_sent++] = data_out.read();
+    }
+
+    printf("== MSG 1 TX Expect ===\n");
+    for (uint8_t i = 0; i < MSG_TX_1_SIZE; ++i)
+        printf("%02X ", msg_tx_expect[i]);
+    printf("\n\n");
+
+    printf("== MSG 1 TX Actual ===\n");
+    for (uint8_t i = 0; i < MSG_TX_1_SIZE; ++i)
+        printf("%02X ", msg_tx_actual[i]);
+    printf("\n\n");
+
+    uint8_t transmit_errors = 0U;
+    for (uint8_t i = 0; i < MSG_TX_1_SIZE; ++i) {
+        if (msg_tx_actual[i] != msg_tx_expect[i])
+            transmit_errors++;
+    }
+
     // Allocate software-side test memory
-    hls::FIFO<uint8_t> input_fifo(2);  // FIFO depth
+    hls::FIFO<uint8_t> data_in(2);
     uint64_t msg_1_timestamp = 0;
     uint64_t msg_2_timestamp = 0;
     uint8_t msg_1_body[MSG_1_SIZE - 4] = {0};
@@ -236,7 +278,7 @@ int main(int argc, char** argv) {
     for (uint8_t i = 2; i < MSG_1_SIZE - 2; ++i) {
         msg_1_test[i] = i;
     }
-    uint16_t crc = checksum_crc16_ccitt(msg_1_test, MSG_1_SIZE - 2);
+    crc = checksum_crc16_ccitt(msg_1_test, MSG_1_SIZE - 2);
     msg_1_test[MSG_1_SIZE - 2] = (crc >> 8) & 0xFF;
     msg_1_test[MSG_1_SIZE - 1] = crc & 0xFF;
 
@@ -254,12 +296,12 @@ int main(int argc, char** argv) {
     // Feed message byte-by-byte into the FIFO
     for (uint8_t i = 0; i < MSG_1_SIZE + MSG_2_SIZE; ++i) {
         if(i < MSG_1_SIZE)
-            input_fifo.write(msg_1_test[i]);
+            data_in.write(msg_1_test[i]);
         else
-            input_fifo.write(msg_2_test[i-MSG_1_SIZE]);
+            data_in.write(msg_2_test[i-MSG_1_SIZE]);
 
         // Call the module once per byte (as if one clock cycle)
-        nav_msg_rx(input_fifo,
+        nav_msg_rx(data_in,
                    &msg_1_timestamp,
                    &msg_2_timestamp,
                    msg_1_body,
@@ -290,7 +332,8 @@ int main(int argc, char** argv) {
     for (uint8_t i = 0; i < MSG_2_SIZE - 4; ++i)
         printf("%02X ", msg_2_body[i]);
     
-    uint8_t errors = !((msg_1_stats.valid == 1U) &&
+    uint8_t errors = !((transmit_errors == 0) &&
+        (msg_1_stats.valid == 1U) &&
         (msg_1_stats.invalid == 0U) &&
         (msg_1_stats.aborted == 0U) &&
         (msg_2_stats.valid == 1U) &&
