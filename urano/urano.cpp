@@ -1,5 +1,6 @@
 #include <stdint.h>
-#include <hls_stream.h>
+#include <assert.h>
+#include "hls/streaming.hpp"
 
 /* The checksum calculation implements CRC-16-CCITT (0x1021, initial 0xFFFF) */
 uint16_t checksum_crc16_ccitt(const uint8_t* data, int len) {
@@ -31,12 +32,12 @@ enum class ReceiverState {
 
 class NavMsgReceiver {
 public:
-    NavMsgReceiver(uint16_t header, uint8_t size) : 
-        header_(header),
-        size_(size),
+    NavMsgReceiver(uint16_t header, uint8_t size) :
+        state_(ReceiverState::Idle),
         counter_(0),
         buffer_{0},
-        state_(ReceiverState::Idle) {}
+        header_(header),
+        size_(size) {}
 
     void reset() {
         counter_ = 0;
@@ -90,7 +91,7 @@ public:
 private:
 
     ReceiverState state_;
-    uint8_t counter_ = 0;
+    uint8_t counter_;
     uint8_t buffer_[256];
     uint16_t header_;
     uint8_t size_;
@@ -103,9 +104,9 @@ struct NavMsgStats {
     uint32_t aborted;
 };
 
-#define MSG_1_HEADER 0xA5A0
+#define MSG_1_HEADER 0xA0A5
 #define MSG_1_SIZE 30U
-#define MSG_2_HEADER 0x55AA
+#define MSG_2_HEADER 0xAA55
 #define MSG_2_SIZE 160U
 
 void nav_msg_rx(
@@ -134,9 +135,9 @@ void nav_msg_rx(
     clock_cycles++;
 
     if (data_in.empty()) {
-        if (msg_1_receiver.get_State() != ReceiverState::Idle && ++gap_tracker >= 30000U) {
+        if (msg_1_receiver.get_state() != ReceiverState::Idle && ++gap_tracker >= 5000U) {
             /* The receiver is expecting the next byte, but the gap tracker has reached the threshold, indicating a timeout.
-             * The gap tracker threshold is set to 30000 clock cycles, which corresponds to 100us at a 300MHz clock frequency.
+             * The gap tracker threshold is set to 5000 clock cycles, which corresponds to 100us at a 50MHz clock frequency.
             */
             msg_1_receiver.reset();
             msg_1_stats->aborted++;
@@ -156,7 +157,7 @@ void nav_msg_rx(
             uint16_t computed = checksum_crc16_ccitt(buffer, MSG_2_SIZE - 2);
             if (expected == computed) {
 #pragma HLS loop unroll
-                for (int i = 2; i < MSG_2_SIZE - 2; ++i) {
+                for (uint8_t i = 2; i < MSG_2_SIZE - 2; ++i) {
                     msg_2_body[i - 2] = buffer[i];
                 }
 
@@ -175,7 +176,7 @@ void nav_msg_rx(
         uint16_t computed = checksum_crc16_ccitt(buffer, MSG_1_SIZE - 2);
         if (expected == computed) {
 #pragma HLS loop unroll
-            for (int i = 2; i < MSG_1_SIZE - 2; ++i) {
+            for (uint8_t i = 2; i < MSG_1_SIZE - 2; ++i) {
                 msg_1_body[i - 2] = buffer[i];
             }
 
@@ -204,18 +205,94 @@ void nav_msg_tx(
     buffer[1] = MSG_TX_1_HEADER >> 8;
 
 #pragma HLS loop unroll
-    for (int i = 2; i < MSG_TX_1_SIZE - 2; ++i)
+    for (uint8_t i = 2; i < MSG_TX_1_SIZE - 2; ++i)
         buffer[i] = msg_tx[i - 2];
 
     uint16_t crc = checksum_crc16_ccitt(buffer, MSG_TX_1_SIZE - 2);
     buffer[MSG_TX_1_SIZE - 2] = (crc >> 8) & 0xFF;
     buffer[MSG_TX_1_SIZE - 1] = crc & 0xFF;
     
-    for (int i = 0; i < MSG_TX_1_SIZE; ++i)
+    for (uint8_t i = 0; i < MSG_TX_1_SIZE; ++i)
         data_out.write(buffer[i]);
 }
 
 int main(int argc, char** argv) {
-    // Test the functions here
+    // Allocate software-side test memory
+    hls::FIFO<uint8_t> input_fifo(2);  // FIFO depth
+    uint64_t msg_1_timestamp = 0;
+    uint64_t msg_2_timestamp = 0;
+    uint8_t msg_1_body[MSG_1_SIZE - 4] = {0};
+    uint8_t msg_2_body[MSG_2_SIZE - 4] = {0};
+    NavMsgStats msg_1_stats = {0};
+    NavMsgStats msg_2_stats = {0};
+
+    // Construct a valid MSG 1 message
+    uint8_t msg_1_test[MSG_1_SIZE] = {0};
+    msg_1_test[0] = MSG_1_HEADER >> 8;
+    msg_1_test[1] = MSG_1_HEADER & 0xFF;
+    for (uint8_t i = 2; i < MSG_1_SIZE - 2; ++i) {
+        msg_1_test[i] = i;
+    }
+    uint16_t crc = checksum_crc16_ccitt(msg_1_test, MSG_1_SIZE - 2);
+    msg_1_test[MSG_1_SIZE - 2] = (crc >> 8) & 0xFF;
+    msg_1_test[MSG_1_SIZE - 1] = crc & 0xFF;
+
+    // Construct a valid MSG 2 message
+    uint8_t msg_2_test[MSG_2_SIZE] = {0};
+    msg_2_test[0] = MSG_2_HEADER >> 8;
+    msg_2_test[1] = MSG_2_HEADER & 0xFF;
+    for (uint8_t i = 2; i < MSG_2_SIZE - 2; ++i) {
+        msg_2_test[i] = i;
+    }
+    crc = checksum_crc16_ccitt(msg_2_test, MSG_2_SIZE - 2);
+    msg_2_test[MSG_2_SIZE - 2] = (crc >> 8) & 0xFF;
+    msg_2_test[MSG_2_SIZE - 1] = crc & 0xFF;
+
+    // Feed message byte-by-byte into the FIFO
+    for (uint8_t i = 0; i < MSG_1_SIZE + MSG_2_SIZE; ++i) {
+        if(i < MSG_1_SIZE)
+            input_fifo.write(msg_1_test[i]);
+        else
+            input_fifo.write(msg_2_test[i-MSG_1_SIZE]);
+
+        // Call the module once per byte (as if one clock cycle)
+        nav_msg_rx(input_fifo,
+                   &msg_1_timestamp,
+                   &msg_2_timestamp,
+                   msg_1_body,
+                   msg_2_body,
+                   &msg_1_stats,
+                   &msg_2_stats);
+    }
+
+    // Check results
+    printf("== MSG 1 STATS ==\n");
+    printf("Valid:   %u\n", msg_1_stats.valid);
+    printf("Invalid: %u\n", msg_1_stats.invalid);
+    printf("Aborted: %u\n", msg_1_stats.aborted);
+    printf("Timestamp: %lu\n", (unsigned long)msg_1_timestamp);
+
+    printf("== MSG 1 Body ===\n");
+    for (uint8_t i = 0; i < MSG_1_SIZE - 4; ++i)
+        printf("%02X ", msg_1_body[i]);
+    printf("\n\n");
+    
+    printf("== MSG 2 STATS ==\n");
+    printf("Valid:   %u\n", msg_2_stats.valid);
+    printf("Invalid: %u\n", msg_2_stats.invalid);
+    printf("Aborted: %u\n", msg_2_stats.aborted);
+    printf("Timestamp: %lu\n", (unsigned long)msg_2_timestamp);
+
+    printf("== MSG 2 Body ===\n");
+    for (uint8_t i = 0; i < MSG_2_SIZE - 4; ++i)
+        printf("%02X ", msg_2_body[i]);
+    
+    assert(msg_1_stats.valid == 1U);
+    assert(msg_1_stats.invalid == 0U);
+    assert(msg_1_stats.aborted == 0U);
+    assert(msg_2_stats.valid == 1U);
+    assert(msg_2_stats.invalid == 0U);
+    assert(msg_2_stats.aborted == 0U);
+
     return 0;
 }
