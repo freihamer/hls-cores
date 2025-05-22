@@ -1,5 +1,5 @@
-#include "msg_rx.hpp"
-#include "utils.hpp"
+#include "rxdeframe.hpp"
+#include "checksum.hpp"
 
 enum class ReceiverState {
     Idle,
@@ -77,29 +77,29 @@ private:
 };
 
 
-void msg_rx(
+void urano_nav_rx(
     hls::FIFO<uint8_t> &data_in,
     uint64_t* msg_1_timestamp,
     uint64_t* msg_2_timestamp,                  
-    uint8_t* msg_1_body,
-    uint8_t* msg_2_body,
+    uint8_t* msg_1_payload,
+    uint8_t* msg_2_payload,
     NavMsgStats* msg_1_stats,
     NavMsgStats* msg_2_stats
 ) {
 #pragma HLS function top
 #pragma HLS interface control type(simple)
-#pragma HLS interface argument(msg_1_timestamp) type(axi_initiator) ptr_addr_interface(axi_target) num_elements(1)
-#pragma HLS interface argument(msg_2_timestamp) type(axi_initiator) ptr_addr_interface(axi_target) num_elements(1)
-#pragma HLS interface argument(msg_1_body) type(axi_initiator) ptr_addr_interface(axi_target) num_elements(MSG_1_SIZE - 4)
-#pragma HLS interface argument(msg_2_body) type(axi_initiator) ptr_addr_interface(axi_target) num_elements(MSG_2_SIZE - 4)
-#pragma HLS interface argument(msg_1_stats) type(axi_initiator) ptr_addr_interface(axi_target) num_elements(1)
-#pragma HLS interface argument(msg_2_stats) type(axi_initiator) ptr_addr_interface(axi_target) num_elements(1)
+#pragma HLS interface argument(msg_1_timestamp) type(memory) num_elements(1)
+#pragma HLS interface argument(msg_2_timestamp) type(memory) num_elements(1)
+#pragma HLS interface argument(msg_1_payload) type(memory) num_elements(RX_MSG_1_SIZE - 4)
+#pragma HLS interface argument(msg_2_payload) type(memory) num_elements(RX_MSG_2_SIZE - 4)
+#pragma HLS interface argument(msg_1_stats) type(memory) num_elements(1)
+#pragma HLS interface argument(msg_2_stats) type(memory) num_elements(1)
 
     static uint64_t clock_cycles = 0U;
     static uint16_t gap_tracker = 0U; // The number of clock clock_cycles spent waiting for the next byte_rx of a sequence
 
-    static NavMsgReceiver msg_1_receiver(MSG_1_HEADER, MSG_1_SIZE);
-    static NavMsgReceiver msg_2_receiver(MSG_2_HEADER, MSG_2_SIZE);
+    static NavMsgReceiver msg_1_receiver(RX_MSG_1_HEADER, RX_MSG_1_SIZE);
+    static NavMsgReceiver msg_2_receiver(RX_MSG_2_HEADER, RX_MSG_2_SIZE);
 
     
     clock_cycles++;
@@ -123,12 +123,12 @@ void msg_rx(
     if (msg_1_receiver.get_state() == ReceiverState::Completed) {
         if (msg_2_receiver.process(byte_rx) == ReceiverState::Completed) {
             const auto& buffer = msg_2_receiver.get_buffer();
-            uint16_t expected = (buffer[MSG_2_SIZE - 2] << 8) | buffer[MSG_2_SIZE - 1];
-            uint16_t computed = checksum_crc16_ccitt(buffer, MSG_2_SIZE - 2);
+            uint16_t expected = (buffer[RX_MSG_2_SIZE - 2] << 8) | buffer[RX_MSG_2_SIZE - 1];
+            uint16_t computed = checksum(buffer, RX_MSG_2_SIZE - 2);
             if (expected == computed) {
 #pragma HLS loop unroll
-                for (uint8_t i = 2; i < MSG_2_SIZE - 2; ++i) {
-                    msg_2_body[i - 2] = buffer[i];
+                for (uint8_t i = 2; i < RX_MSG_2_SIZE - 2; ++i) {
+                    msg_2_payload[i - 2] = buffer[i];
                 }
 
                 *msg_2_timestamp = clock_cycles;
@@ -142,12 +142,12 @@ void msg_rx(
 
     } else if (msg_1_receiver.process(byte_rx) == ReceiverState::Completed) {
         const auto& buffer = msg_1_receiver.get_buffer();
-        uint16_t expected = (buffer[MSG_1_SIZE - 2] << 8) | buffer[MSG_1_SIZE - 1];
-        uint16_t computed = checksum_crc16_ccitt(buffer, MSG_1_SIZE - 2);
+        uint16_t expected = (buffer[RX_MSG_1_SIZE - 2] << 8) | buffer[RX_MSG_1_SIZE - 1];
+        uint16_t computed = checksum(buffer, RX_MSG_1_SIZE - 2);
         if (expected == computed) {
 #pragma HLS loop unroll
-            for (uint8_t i = 2; i < MSG_1_SIZE - 2; ++i) {
-                msg_1_body[i - 2] = buffer[i];
+            for (uint8_t i = 2; i < RX_MSG_1_SIZE - 2; ++i) {
+                msg_1_payload[i - 2] = buffer[i];
             }
 
             *msg_1_timestamp = clock_cycles;

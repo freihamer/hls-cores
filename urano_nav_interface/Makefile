@@ -1,5 +1,5 @@
-NAME = urano_nav
-SRCS= msg_rx.cpp msg_tx.cpp utils.cpp test_bench.cpp
+NAME = urano_nav_interface
+SRCS= rxdeframe.cpp txframe.cpp checksum.cpp testbench.cpp
 LOCAL_CONFIG = -legup-config=config.tcl
 SHLS_ROOT_DIR ?= $(abspath $(dir $(shell which shls))/..)
 
