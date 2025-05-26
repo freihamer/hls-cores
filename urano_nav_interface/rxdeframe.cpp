@@ -88,12 +88,12 @@ void urano_nav_rx(
 ) {
 #pragma HLS function top
 #pragma HLS interface control type(simple)
-#pragma HLS interface argument(msg_1_timestamp) type(memory) num_elements(1)
-#pragma HLS interface argument(msg_2_timestamp) type(memory) num_elements(1)
-#pragma HLS interface argument(msg_1_payload) type(memory) num_elements(RX_MSG_1_SIZE - 4)
-#pragma HLS interface argument(msg_2_payload) type(memory) num_elements(RX_MSG_2_SIZE - 4)
-#pragma HLS interface argument(msg_1_stats) type(memory) num_elements(1)
-#pragma HLS interface argument(msg_2_stats) type(memory) num_elements(1)
+#pragma HLS interface argument(msg_1_timestamp) type(axi_target) num_elements(1)
+#pragma HLS interface argument(msg_2_timestamp) type(axi_target) num_elements(1)
+#pragma HLS interface argument(msg_1_payload) type(axi_target) num_elements(RX_MSG_1_SIZE - 4)
+#pragma HLS interface argument(msg_2_payload) type(axi_target) num_elements(RX_MSG_2_SIZE - 4)
+#pragma HLS interface argument(msg_1_stats) type(axi_target) num_elements(1)
+#pragma HLS interface argument(msg_2_stats) type(axi_target) num_elements(1)
 
     static uint64_t clock_cycles = 0U;
     static uint16_t gap_tracker = 0U; // The number of clock clock_cycles spent waiting for the next byte_rx of a sequence
