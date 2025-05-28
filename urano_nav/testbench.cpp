@@ -47,19 +47,19 @@ void test_urano_nav_rx() {
     NavMsgStats msg_1_stats = {0};
     NavMsgStats msg_2_stats = {0};
 
-    uint8_t bytes[RX_MSG_1_SIZE + 4] = {0};
+    uint8_t bytes[RX_MSG_1_SIZE] = {0};
     uint8_t count = 0U;
 
     bytes[count++] = RX_MSG_1_HEADER >> 8;
     bytes[count++] = RX_MSG_1_HEADER & 0xFF;
-    for (uint8_t i = 0; i < RX_MSG_1_SIZE; ++i) {
+    for (uint8_t i = 0; i < RX_MSG_1_SIZE - 4; ++i) {
         bytes[count++] = msg_1[i];
     }
-    uint16_t crc = checksum(bytes, RX_MSG_1_SIZE + 2);
+    uint16_t crc = checksum(bytes, RX_MSG_1_SIZE - 2);
     bytes[count++] = (crc >> 8) & 0xFF;
     bytes[count++] = crc & 0xFF;
 
-    for (uint8_t i = 0U; i < RX_MSG_1_SIZE + 4; ++i) {
+    for (uint8_t i = 0U; i < RX_MSG_1_SIZE; ++i) {
         data_in.write(bytes[i]);
 
         urano_nav_rx(data_in, msg_1, msg_2, &msg_1_stats, &msg_2_stats);
