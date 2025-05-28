@@ -16,9 +16,7 @@ constexpr uint16_t RX_MSG_2_HEADER = 0xAA55;
 constexpr uint8_t RX_MSG_2_SIZE = 160U;
 
 void urano_nav_rx(
-    hls::FIFO<uint8_t> &data_in,
-    uint64_t* msg_1_timestamp,
-    uint64_t* msg_2_timestamp,                  
+    hls::FIFO<uint8_t> &data_in,             
     uint8_t* msg_1_payload,
     uint8_t* msg_2_payload,
     NavMsgStats* msg_1_stats,
