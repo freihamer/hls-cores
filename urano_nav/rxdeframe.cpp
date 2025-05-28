@@ -109,6 +109,8 @@ void urano_nav_rx(
             gap_tracker++;
         }
         return;
+    } else {
+        gap_tracker = 0U;
     }
 
     uint8_t byte_rx = data_in.read();
